@@ -1,0 +1,3 @@
+# smartcopy
+
+copy directories SMART
