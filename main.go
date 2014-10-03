@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 func existsFileDir(path string) (bool, error) {
@@ -74,17 +76,23 @@ func filterFilesByRegExp(files []string, regex string) (retFiltered []string, re
 	return
 }
 
-func getMD5Files(root string, files []string) map[string]string {
+func getMD5Files(root string, files []string, fastmode int) map[string]string {
 	retFiles := make(map[string]string)
 	for _, v := range files {
-		if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
-			retFiles[v] = hash
+		if fastmode == 0 {
+			fmt.Printf("hashing file: %s\n", v)
+			if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
+				retFiles[v] = hash
+			}
+			continue
 		}
+		fmt.Printf("setting file: %s\n", v)
+		retFiles[v] = fmt.Sprintf("%d", fastmode)
 	}
 	return retFiles
 }
 
-func analyzeDirectory(rootDir, fileRegExp string) (files map[string]string, retErr error) {
+func analyzeDirectory(rootDir, fileRegExp string, fastmode int) (files map[string]string, retErr error) {
 	allFiles, err := getFilesFromDir(rootDir)
 	if err != nil {
 		retErr = err
@@ -95,14 +103,45 @@ func analyzeDirectory(rootDir, fileRegExp string) (files map[string]string, retE
 		retErr = err
 		return
 	}
-	files = getMD5Files(rootDir, allFiles)
+	files = getMD5Files(rootDir, allFiles, fastmode)
 	return
+}
+
+func diffDirectory(dir1, dir2 map[string]string) map[string][]string {
+	retDiff := make(map[string][]string)
+	for dn1, dv1 := range dir1 {
+		if dv2, ok := dir2[dn1]; ok {
+			if dv1 != dv2 {
+				retDiff[dn1] = []string{dv1, dv2}
+			}
+			continue
+		}
+		retDiff[dn1] = []string{dv1, ""}
+	}
+	return retDiff
+}
+
+func copyFiles(src, dest string, files map[string][]string) {
+	for fn, hsh := range files {
+		if len(hsh[1]) > 1 {
+			fmt.Printf("overwriting file: %s\n", fn)
+		} else {
+			fmt.Printf("creating file: %s\n", fn)
+		}
+		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), filepath.Join(dest, fn))
+		err := cpCmd.Run()
+		if err != nil {
+			fmt.Printf("error: %s\n", err)
+		}
+	}
 }
 
 func main() {
 	srcDir := flag.String("s", "", "source directory")
 	destDir := flag.String("d", "", "destination directory")
 	fileRegExp := flag.String("regexp", ".*", "file regexp")
+	diffOnly := flag.Bool("diff", false, "diff source vs. destination")
+	fastMode := flag.Bool("fast", false, "enables fast mode")
 
 	flag.Parse()
 
@@ -116,16 +155,51 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(rDestDir)
+	if rSrcDir == rDestDir {
+		fmt.Println("source directory and destination directory are the same")
+		return
+	}
 	if exists, _ := existsFileDir(rSrcDir); !exists {
 		fmt.Println("source directory does not exist")
 		return
 	}
-	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp)
+	if exists, _ := existsFileDir(rDestDir); !exists {
+		if err := os.MkdirAll(rDestDir, 0700); err != nil {
+			fmt.Println("could not create destination directory")
+			return
+		}
+		fmt.Println("destination directory created")
+	}
+	fastModeMpl := 0
+	if *fastMode {
+		fastModeMpl = 1
+	}
+	fmt.Println(strings.Repeat("-", 40))
+	fmt.Println("analyzing directory", rSrcDir)
+	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, fastModeMpl*1)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(allSrcFiles)
-	//fmt.Println(getMD5File(".git/COMMIT_EDITMSG"))
+	fmt.Println(strings.Repeat("-", 40))
+	fmt.Println("analyzing directory", rDestDir)
+	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, fastModeMpl*2)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	diff := diffDirectory(allSrcFiles, allDestFiles)
+	fmt.Println(strings.Repeat("-", 40))
+	for fn, hsh := range diff {
+		if len(hsh[1]) > 0 {
+			fmt.Printf("%s\nchange: %s -> %s\n\n", fn, hsh[0], hsh[1])
+			continue
+		}
+		fmt.Printf("%s\nnew file: %s\n\n", fn, hsh[0])
+	}
+	if *diffOnly {
+		return
+	}
+	fmt.Println(strings.Repeat("-", 40))
+	copyFiles(rSrcDir, rDestDir, diff)
 }
