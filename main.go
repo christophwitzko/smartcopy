@@ -138,15 +138,20 @@ func formatF64Duration(dur float64) string {
 	return fmt.Sprintf("%d:%.2d:%.2d", int(d/3600), int(d/60)%60, int(d)%60)
 }
 
+func sumF64Duration(durs []float64) float64 {
+	sum := float64(0)
+	for _, v := range durs {
+		sum += v
+	}
+	return sum
+}
+
 func avgF64Duration(durs []float64) float64 {
 	length := len(durs)
 	if length < 1 {
 		return float64(0)
 	}
-	sum := float64(0)
-	for _, v := range durs {
-		sum += v
-	}
+	sum := sumF64Duration(durs)
 	return sum / float64(length)
 }
 
@@ -183,6 +188,7 @@ func copyFiles(src, dest string, files map[string][]string) {
 			fmt.Printf("error: %s\n", err)
 		}
 	}
+	fmt.Printf("all files copied [%s]\n", strPadding(formatF64Duration(sumF64Duration(allDurations)), 8))
 }
 
 func main() {
