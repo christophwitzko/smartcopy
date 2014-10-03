@@ -257,12 +257,13 @@ func main() {
 		return
 	}
 
+	fmt.Println(strings.Repeat("-", 40))
+
 	if len(diff) < 1 {
 		fmt.Println("no files to copy")
 		return
 	}
 
-	fmt.Println(strings.Repeat("-", 40))
 	fmt.Printf("copying %d files\n", len(diff))
 	copyFiles(rSrcDir, rDestDir, diff)
 }
