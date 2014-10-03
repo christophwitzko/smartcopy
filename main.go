@@ -175,10 +175,10 @@ func copyFiles(src, dest string, files map[string][]string) {
 		destDir := filepath.Dir(destFp)
 		if exists, _ := existsFileDir(destDir); !exists {
 			if err := os.MkdirAll(destDir, 0700); err != nil {
-				fmt.Println("could not create directory")
+				fmt.Printf("could not create directory: %s\n", err)
 				return
 			}
-			fmt.Println("directory created")
+			fmt.Printf("directory created: %s\n", filepath.Dir(fn))
 		}
 		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), destFp)
 		tStart := time.Now()
