@@ -104,6 +104,7 @@ func analyzeDirectory(rootDir, fileRegExp string, fastmode bool) (files map[stri
 		retErr = err
 		return
 	}
+	fmt.Printf("found %d files\n", len(allFiles))
 	files = getMD5Files(rootDir, allFiles, fastmode)
 	return
 }
@@ -234,7 +235,6 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("found %d source files\n", len(allSrcFiles))
 	fmt.Println(strings.Repeat("-", 40))
 	fmt.Println("analyzing directory", rDestDir)
 	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, *fastMode)
@@ -242,7 +242,6 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("found %d destination files\n", len(allDestFiles))
 	diff := diffDirectory(allSrcFiles, allDestFiles)
 	if *diffOnly {
 		fmt.Println(strings.Repeat("-", 40))
