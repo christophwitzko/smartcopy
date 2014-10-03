@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func existsFileDir(path string) (bool, error) {
@@ -121,12 +122,37 @@ func diffDirectory(dir1, dir2 map[string]string) map[string][]string {
 	return retDiff
 }
 
+func strPadding(instr string, padlen int) string {
+	pdiff := padlen - len(instr)
+	if pdiff <= 0 {
+		return instr
+	}
+	return strings.Repeat(" ", pdiff) + instr
+}
+
+func formatDuration(dur time.Duration) string {
+	d := float64(dur) / float64(time.Second)
+	if d < 3600 {
+		return fmt.Sprintf("%d:%.2d", int(d/60), int(d)%60)
+	}
+	return fmt.Sprintf("%d:%.2d:%.2d", int(d/3600), int(d/60)%60, int(d)%60)
+}
+
 func copyFiles(src, dest string, files map[string][]string) {
+	filesCount := len(files)
+	filesDone := 0
+	lastDuration := time.Duration(0)
+	if filesCount < 1 {
+		return
+	}
 	for fn, hsh := range files {
+		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
+		leftDurationStr := strPadding(formatDuration(time.Duration(int64(filesCount-filesDone)*int64(lastDuration))), 8)
+		filesDone++
 		if len(hsh[1]) > 1 {
-			fmt.Printf("overwriting file: %s\n", fn)
+			fmt.Printf("[%s, %s] overwriting file: %s\n", progress, leftDurationStr, fn)
 		} else {
-			fmt.Printf("creating file: %s\n", fn)
+			fmt.Printf("[%s, %s] creating file: %s\n", progress, leftDurationStr, fn)
 		}
 		destFp := filepath.Join(dest, fn)
 		destDir := filepath.Dir(destFp)
@@ -138,7 +164,9 @@ func copyFiles(src, dest string, files map[string][]string) {
 			fmt.Println("destination directory created")
 		}
 		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), destFp)
+		tStart := time.Now()
 		err := cpCmd.Run()
+		lastDuration = time.Since(tStart)
 		if err != nil {
 			fmt.Printf("error: %s\n", err)
 		}
