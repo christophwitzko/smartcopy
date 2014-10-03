@@ -130,43 +130,55 @@ func strPadding(instr string, padlen int) string {
 	return strings.Repeat(" ", pdiff) + instr
 }
 
-func formatDuration(dur time.Duration) string {
-	d := float64(dur) / float64(time.Second)
+func formatF64Duration(dur float64) string {
+	d := dur / float64(time.Second)
 	if d < 3600 {
 		return fmt.Sprintf("%d:%.2d", int(d/60), int(d)%60)
 	}
 	return fmt.Sprintf("%d:%.2d:%.2d", int(d/3600), int(d/60)%60, int(d)%60)
 }
 
+func avgF64Duration(durs []float64) float64 {
+	length := len(durs)
+	if length < 1 {
+		return float64(0)
+	}
+	sum := float64(0)
+	for _, v := range durs {
+		sum += v
+	}
+	return sum / float64(length)
+}
+
 func copyFiles(src, dest string, files map[string][]string) {
 	filesCount := len(files)
 	filesDone := 0
-	lastDuration := time.Duration(0)
+	allDurations := make([]float64, 0)
 	if filesCount < 1 {
 		return
 	}
 	for fn, hsh := range files {
 		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
-		leftDurationStr := strPadding(formatDuration(time.Duration(int64(filesCount-filesDone)*int64(lastDuration))), 8)
+		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgF64Duration(allDurations)), 8)
 		filesDone++
 		if len(hsh[1]) > 1 {
-			fmt.Printf("[%s, %s] overwriting file: %s\n", progress, leftDurationStr, fn)
+			fmt.Printf("[%s] [%s] overwriting file: %s\n", progress, leftDurationStr, fn)
 		} else {
-			fmt.Printf("[%s, %s] creating file: %s\n", progress, leftDurationStr, fn)
+			fmt.Printf("[%s] [%s] creating file: %s\n", progress, leftDurationStr, fn)
 		}
 		destFp := filepath.Join(dest, fn)
 		destDir := filepath.Dir(destFp)
 		if exists, _ := existsFileDir(destDir); !exists {
 			if err := os.MkdirAll(destDir, 0700); err != nil {
-				fmt.Println("could not create destination directory")
+				fmt.Println("could not create directory")
 				return
 			}
-			fmt.Println("destination directory created")
+			fmt.Println("directory created")
 		}
 		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), destFp)
 		tStart := time.Now()
 		err := cpCmd.Run()
-		lastDuration = time.Since(tStart)
+		allDurations = append(allDurations, float64(time.Since(tStart)))
 		if err != nil {
 			fmt.Printf("error: %s\n", err)
 		}
@@ -200,12 +212,13 @@ func main() {
 		fmt.Println("source directory does not exist")
 		return
 	}
+
 	if exists, _ := existsFileDir(rDestDir); !exists {
 		if err := os.MkdirAll(rDestDir, 0700); err != nil {
-			fmt.Println("could not create directory")
+			fmt.Println("could not create destination directory")
 			return
 		}
-		fmt.Println("directory created")
+		fmt.Println("directory destination created")
 	}
 
 	fmt.Println(strings.Repeat("-", 40))
@@ -225,22 +238,25 @@ func main() {
 	}
 	fmt.Printf("found %d destination files\n", len(allDestFiles))
 	diff := diffDirectory(allSrcFiles, allDestFiles)
-	fmt.Println(strings.Repeat("-", 40))
-	fmt.Printf("found %d diff files\n", len(diff))
-	for fn, hsh := range diff {
-		if len(hsh[1]) > 0 {
-			fmt.Printf("%s\nchange: %s -> %s\n\n", fn, hsh[0], hsh[1])
-			continue
-		}
-		fmt.Printf("%s\nnew file: %s\n\n", fn, hsh[0])
-	}
 	if *diffOnly {
+		fmt.Println(strings.Repeat("-", 40))
+		fmt.Printf("found %d diff files\n", len(diff))
+		for fn, hsh := range diff {
+			if len(hsh[1]) > 0 {
+				fmt.Printf("%s\nchange: %s -> %s\n\n", fn, hsh[0], hsh[1])
+				continue
+			}
+			fmt.Printf("%s\nnew file: %s\n\n", fn, hsh[0])
+		}
 		return
 	}
+
 	if len(diff) < 1 {
 		fmt.Println("no files to copy")
 		return
 	}
+
 	fmt.Println(strings.Repeat("-", 40))
+	fmt.Printf("copying %d files\n", len(diff))
 	copyFiles(rSrcDir, rDestDir, diff)
 }
