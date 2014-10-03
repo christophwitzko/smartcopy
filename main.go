@@ -76,10 +76,10 @@ func filterFilesByRegExp(files []string, regex string) (retFiltered []string, re
 	return
 }
 
-func getMD5Files(root string, files []string, fastmode int) map[string]string {
+func getMD5Files(root string, files []string, fastmode bool) map[string]string {
 	retFiles := make(map[string]string)
 	for _, v := range files {
-		if fastmode == 0 {
+		if !fastmode {
 			fmt.Printf("hashing file: %s\n", v)
 			if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
 				retFiles[v] = hash
@@ -87,12 +87,12 @@ func getMD5Files(root string, files []string, fastmode int) map[string]string {
 			continue
 		}
 		fmt.Printf("setting file: %s\n", v)
-		retFiles[v] = fmt.Sprintf("%d", fastmode)
+		retFiles[v] = "FM"
 	}
 	return retFiles
 }
 
-func analyzeDirectory(rootDir, fileRegExp string, fastmode int) (files map[string]string, retErr error) {
+func analyzeDirectory(rootDir, fileRegExp string, fastmode bool) (files map[string]string, retErr error) {
 	allFiles, err := getFilesFromDir(rootDir)
 	if err != nil {
 		retErr = err
@@ -128,7 +128,16 @@ func copyFiles(src, dest string, files map[string][]string) {
 		} else {
 			fmt.Printf("creating file: %s\n", fn)
 		}
-		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), filepath.Join(dest, fn))
+		destFp := filepath.Join(dest, fn)
+		destDir := filepath.Dir(destFp)
+		if exists, _ := existsFileDir(destDir); !exists {
+			if err := os.MkdirAll(destDir, 0700); err != nil {
+				fmt.Println("could not create destination directory")
+				return
+			}
+			fmt.Println("destination directory created")
+		}
+		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), destFp)
 		err := cpCmd.Run()
 		if err != nil {
 			fmt.Printf("error: %s\n", err)
@@ -165,31 +174,31 @@ func main() {
 	}
 	if exists, _ := existsFileDir(rDestDir); !exists {
 		if err := os.MkdirAll(rDestDir, 0700); err != nil {
-			fmt.Println("could not create destination directory")
+			fmt.Println("could not create directory")
 			return
 		}
-		fmt.Println("destination directory created")
+		fmt.Println("directory created")
 	}
-	fastModeMpl := 0
-	if *fastMode {
-		fastModeMpl = 1
-	}
+
 	fmt.Println(strings.Repeat("-", 40))
 	fmt.Println("analyzing directory", rSrcDir)
-	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, fastModeMpl*1)
+	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, *fastMode)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	fmt.Printf("found %d source files\n", len(allSrcFiles))
 	fmt.Println(strings.Repeat("-", 40))
 	fmt.Println("analyzing directory", rDestDir)
-	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, fastModeMpl*2)
+	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, *fastMode)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	fmt.Printf("found %d destination files\n", len(allDestFiles))
 	diff := diffDirectory(allSrcFiles, allDestFiles)
 	fmt.Println(strings.Repeat("-", 40))
+	fmt.Printf("found %d diff files\n", len(diff))
 	for fn, hsh := range diff {
 		if len(hsh[1]) > 0 {
 			fmt.Printf("%s\nchange: %s -> %s\n\n", fn, hsh[0], hsh[1])
@@ -198,6 +207,10 @@ func main() {
 		fmt.Printf("%s\nnew file: %s\n\n", fn, hsh[0])
 	}
 	if *diffOnly {
+		return
+	}
+	if len(diff) < 1 {
+		fmt.Println("no files to copy")
 		return
 	}
 	fmt.Println(strings.Repeat("-", 40))
