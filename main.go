@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,10 @@ import (
 	"strings"
 	"time"
 )
+
+const SCMD5FN = "smartcopy.md5"
+
+var reSCMD5 = regexp.MustCompile("(.*)(::)([0-9a-fA-F]+)")
 
 func existsFileDir(path string) (bool, error) {
 	_, err := os.Stat(path)
@@ -23,6 +28,37 @@ func existsFileDir(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func loadMD5File(filename string) (retMap map[string]string, retErr error) {
+	retMap = make(map[string]string)
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		retErr = err
+		return
+	}
+	sfastr := strings.Split(string(data), "\n")
+	if len(sfastr) < 1 {
+		retErr = errors.New("empty MD5 file")
+		return
+	}
+	for _, ln := range sfastr {
+		found := reSCMD5.FindAllStringSubmatch(ln, -1)
+		if len(found) < 1 || len(found[0]) < 4 {
+			continue
+		}
+		retMap[found[0][1]] = found[0][3]
+	}
+	return
+}
+
+func saveMD5File(filename string, hm map[string]string) error {
+	dasstr := ""
+	for fn, hs := range hm {
+		dasstr += fmt.Sprintf("%s::%s\n", fn, hs)
+	}
+
+	return ioutil.WriteFile(filename, []byte(dasstr), 0700)
 }
 
 func getMD5File(file string) (hash string, retErr error) {
@@ -70,20 +106,35 @@ func filterFilesByRegExp(files []string, regex string) (retFiltered []string, re
 	}
 	retFiltered = make([]string, 0)
 	for _, v := range files {
-		if crgx.MatchString(v) {
+		if crgx.MatchString(v) && strings.ToLower(v) != SCMD5FN {
 			retFiltered = append(retFiltered, v)
 		}
 	}
 	return
 }
 
-func getMD5Files(root string, files []string, fastmode bool) map[string]string {
+func getMD5Files(root string, files []string, fastmode, ignoremd5file bool) map[string]string {
 	retFiles := make(map[string]string)
+	scmd5fp := filepath.Join(root, SCMD5FN)
+	if exists, _ := existsFileDir(scmd5fp); exists && !fastmode && !ignoremd5file {
+		fmt.Println("reading smartcopy.md5")
+		var err error
+		retFiles, err = loadMD5File(scmd5fp)
+		if err != nil {
+			fmt.Printf("error: %s\n", err)
+		}
+		fmt.Printf("found %d hashes\n", len(retFiles))
+	}
 	for _, v := range files {
 		if !fastmode {
-			fmt.Printf("hashing file: %s\n", v)
-			if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
-				retFiles[v] = hash
+			if _, ok := retFiles[v]; !ok {
+				fmt.Printf("hashing file: %s\n", v)
+				if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
+					retFiles[v] = hash
+				}
+			}
+			if err := saveMD5File(scmd5fp, retFiles); err != nil {
+				fmt.Printf("error: %s\n", err)
 			}
 			continue
 		}
@@ -93,7 +144,8 @@ func getMD5Files(root string, files []string, fastmode bool) map[string]string {
 	return retFiles
 }
 
-func analyzeDirectory(rootDir, fileRegExp string, fastmode bool) (files map[string]string, retErr error) {
+func analyzeDirectory(rootDir, fileRegExp string, fastmode, ignoremd5file bool) (files map[string]string, retErr error) {
+	fmt.Printf("analyzing directory: %s\n", rootDir)
 	allFiles, err := getFilesFromDir(rootDir)
 	if err != nil {
 		retErr = err
@@ -105,7 +157,7 @@ func analyzeDirectory(rootDir, fileRegExp string, fastmode bool) (files map[stri
 		return
 	}
 	fmt.Printf("found %d files\n", len(allFiles))
-	files = getMD5Files(rootDir, allFiles, fastmode)
+	files = getMD5Files(rootDir, allFiles, fastmode, ignoremd5file)
 	return
 }
 
@@ -197,7 +249,8 @@ func main() {
 	destDir := flag.String("d", "", "destination directory")
 	fileRegExp := flag.String("regexp", ".*", "file regexp")
 	diffOnly := flag.Bool("diff", false, "diff source vs. destination")
-	fastMode := flag.Bool("fast", false, "enables fast mode")
+	fastMode := flag.Bool("fast", false, "enables fast mode (no hashing)")
+	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the smartcopy.md5 file and updates it")
 
 	flag.Parse()
 
@@ -229,15 +282,13 @@ func main() {
 	}
 
 	fmt.Println(strings.Repeat("-", 40))
-	fmt.Println("analyzing directory", rSrcDir)
-	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, *fastMode)
+	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, *fastMode, *ignoreMD5File)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Println(strings.Repeat("-", 40))
-	fmt.Println("analyzing directory", rDestDir)
-	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, *fastMode)
+	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, *fastMode, *ignoreMD5File)
 	if err != nil {
 		fmt.Println(err)
 		return
