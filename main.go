@@ -215,6 +215,7 @@ func copyFiles(src, dest string, files map[string][]string) {
 	if filesCount < 1 {
 		return
 	}
+	fmt.Printf("copying %d files\n", len(files))
 	for fn, hsh := range files {
 		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
 		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgF64Duration(allDurations)), 8)
@@ -313,7 +314,5 @@ func main() {
 		fmt.Println("no files to copy")
 		return
 	}
-
-	fmt.Printf("copying %d files\n", len(diff))
 	copyFiles(rSrcDir, rDestDir, diff)
 }
