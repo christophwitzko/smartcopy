@@ -158,6 +158,17 @@ func getMD5Files(root string, files []*myFile, fastmode, ignoremd5file bool) map
 		}
 		fmt.Printf("found %d hashes\n", len(retFiles))
 	}
+	if len(retFiles) > len(files) {
+		rrFls := make(map[string]*myFile)
+		for _, rfl := range files {
+			rrFls[rfl.Name] = retFiles[rfl.Name]
+			delete(retFiles, rfl.Name)
+		}
+		for dfn, _ := range retFiles {
+			fmt.Printf("file deleted: %s\n", dfn)
+		}
+		retFiles = rrFls
+	}
 	for _, v := range files {
 		if !fastmode {
 			fval, fok := retFiles[v.Name]
@@ -214,6 +225,9 @@ func diffDirectory(dir1, dir2 map[string]*myFile, bidir bool) map[string]*myDiff
 		if dv2, ok := dir2[dn1]; ok {
 			if dv1.Hash != dv2.Hash {
 				retDiff[dn1] = &myDiff{dv1, dv2, false}
+				if dv1.ModTime.Sub(dv2.ModTime) < 0 {
+					retDiff[dn1].Reverse = true
+				}
 			}
 			continue
 		}
