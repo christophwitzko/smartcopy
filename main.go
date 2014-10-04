@@ -11,13 +11,33 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const SCMD5FN = "smartcopy.md5"
 
-var reSCMD5 = regexp.MustCompile("(.*)(::)([0-9a-fA-F]+)")
+var reSCMD5 = regexp.MustCompile("(.*)::([0-9a-fA-F]+)::(\\d*)::(.*)")
+
+type myFile struct {
+	Name    string
+	Size    int64
+	ModTime time.Time
+	Hash    string
+}
+
+func (myf *myFile) getModTimeText() string {
+	bts, err := myf.ModTime.MarshalText()
+	if err != nil {
+		return ""
+	}
+	return string(bts)
+}
+
+func (myf *myFile) setModTimeText(txt string) error {
+	return myf.ModTime.UnmarshalText([]byte(txt))
+}
 
 func existsFileDir(path string) (bool, error) {
 	_, err := os.Stat(path)
@@ -30,8 +50,8 @@ func existsFileDir(path string) (bool, error) {
 	return false, err
 }
 
-func loadMD5File(filename string) (retMap map[string]string, retErr error) {
-	retMap = make(map[string]string)
+func loadMD5File(filename string) (retMap map[string]*myFile, retErr error) {
+	retMap = make(map[string]*myFile)
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		retErr = err
@@ -44,21 +64,34 @@ func loadMD5File(filename string) (retMap map[string]string, retErr error) {
 	}
 	for _, ln := range sfastr {
 		found := reSCMD5.FindAllStringSubmatch(ln, -1)
-		if len(found) < 1 || len(found[0]) < 4 {
+		if len(found) < 1 || len(found[0]) < 5 {
 			continue
 		}
-		retMap[found[0][1]] = found[0][3]
+		size, err := strconv.ParseInt(found[0][3], 10, 64)
+		if err != nil {
+			fmt.Printf("error: %s\n", err)
+			continue
+		}
+		nmyf := &myFile{}
+		nmyf.Name = found[0][1]
+		nmyf.Size = size
+		nmyf.Hash = found[0][2]
+		err = nmyf.setModTimeText(found[0][4])
+		if err != nil {
+			fmt.Printf("error: %s\n", err)
+			continue
+		}
+		retMap[nmyf.Name] = nmyf
 	}
 	return
 }
 
-func saveMD5File(filename string, hm map[string]string) error {
+func saveMD5File(filename string, hm map[string]*myFile) error {
 	dasstr := ""
-	for fn, hs := range hm {
-		dasstr += fmt.Sprintf("%s::%s\n", fn, hs)
+	for _, mf := range hm {
+		dasstr += fmt.Sprintf("%s::%s::%d::%s\n", mf.Name, mf.Hash, mf.Size, mf.getModTimeText())
 	}
-
-	return ioutil.WriteFile(filename, []byte(dasstr), 0700)
+	return ioutil.WriteFile(filename, []byte(dasstr), 0644)
 }
 
 func getMD5File(file string) (hash string, retErr error) {
@@ -83,38 +116,38 @@ func getMD5File(file string) (hash string, retErr error) {
 	return
 }
 
-func getFilesFromDir(dir string) (retDirs []string, retErr error) {
+func getFilesFromDir(dir string) (retDirs []*myFile, retErr error) {
 	if !filepath.IsAbs(dir) {
 		retErr = errors.New("filepath is not absolute")
 		return
 	}
-	retDirs = make([]string, 0)
+	retDirs = make([]*myFile, 0)
 	retErr = filepath.Walk(dir, func(pth string, f os.FileInfo, err error) error {
 		if rpth, rerr := filepath.Rel(dir, pth); !f.IsDir() && rerr == nil {
-			retDirs = append(retDirs, rpth)
+			retDirs = append(retDirs, &myFile{rpth, f.Size(), f.ModTime(), ""})
 		}
 		return nil
 	})
 	return
 }
 
-func filterFilesByRegExp(files []string, regex string) (retFiltered []string, retErr error) {
+func filterFilesByRegExp(files []*myFile, regex string) (retFiltered []*myFile, retErr error) {
 	crgx, err := regexp.Compile(regex)
 	if err != nil {
 		retErr = err
 		return
 	}
-	retFiltered = make([]string, 0)
+	retFiltered = make([]*myFile, 0)
 	for _, v := range files {
-		if crgx.MatchString(v) && strings.ToLower(v) != SCMD5FN {
+		if crgx.MatchString(v.Name) && strings.ToLower(v.Name) != SCMD5FN {
 			retFiltered = append(retFiltered, v)
 		}
 	}
 	return
 }
 
-func getMD5Files(root string, files []string, fastmode, ignoremd5file bool) map[string]string {
-	retFiles := make(map[string]string)
+func getMD5Files(root string, files []*myFile, fastmode, ignoremd5file bool) map[string]*myFile {
+	retFiles := make(map[string]*myFile)
 	scmd5fp := filepath.Join(root, SCMD5FN)
 	if exists, _ := existsFileDir(scmd5fp); exists && !fastmode && !ignoremd5file {
 		fmt.Println("reading smartcopy.md5")
@@ -127,24 +160,33 @@ func getMD5Files(root string, files []string, fastmode, ignoremd5file bool) map[
 	}
 	for _, v := range files {
 		if !fastmode {
-			if _, ok := retFiles[v]; !ok {
-				fmt.Printf("hashing file: %s\n", v)
-				if hash, err := getMD5File(filepath.Join(root, v)); err == nil {
-					retFiles[v] = hash
-				}
+			fval, fok := retFiles[v.Name]
+			if fok && v.Size == fval.Size && v.ModTime.Sub(fval.ModTime) == 0 {
+				continue
+			}
+			fmt.Printf("hashing file: %s\n", v.Name)
+			if hash, err := getMD5File(filepath.Join(root, v.Name)); err == nil {
+				v.Hash = hash
 			}
 			if err := saveMD5File(scmd5fp, retFiles); err != nil {
 				fmt.Printf("error: %s\n", err)
 			}
-			continue
+			retFiles[v.Name] = v
+		} else {
+			fmt.Printf("setting file: %s\n", v.Name)
+			v.Hash = "FM"
+			retFiles[v.Name] = v
 		}
-		fmt.Printf("setting file: %s\n", v)
-		retFiles[v] = "FM"
+	}
+	if !fastmode {
+		if err := saveMD5File(scmd5fp, retFiles); err != nil {
+			fmt.Printf("error: %s\n", err)
+		}
 	}
 	return retFiles
 }
 
-func analyzeDirectory(rootDir, fileRegExp string, fastmode, ignoremd5file bool) (files map[string]string, retErr error) {
+func analyzeDirectory(rootDir, fileRegExp string, fastmode, ignoremd5file bool) (files map[string]*myFile, retErr error) {
 	fmt.Printf("analyzing directory: %s\n", rootDir)
 	allFiles, err := getFilesFromDir(rootDir)
 	if err != nil {
@@ -161,16 +203,32 @@ func analyzeDirectory(rootDir, fileRegExp string, fastmode, ignoremd5file bool) 
 	return
 }
 
-func diffDirectory(dir1, dir2 map[string]string) map[string][]string {
-	retDiff := make(map[string][]string)
+type myDiff struct {
+	A, B    *myFile
+	Reverse bool
+}
+
+func diffDirectory(dir1, dir2 map[string]*myFile, bidir bool) map[string]*myDiff {
+	retDiff := make(map[string]*myDiff)
 	for dn1, dv1 := range dir1 {
 		if dv2, ok := dir2[dn1]; ok {
-			if dv1 != dv2 {
-				retDiff[dn1] = []string{dv1, dv2}
+			if dv1.Hash != dv2.Hash {
+				retDiff[dn1] = &myDiff{dv1, dv2, false}
 			}
 			continue
 		}
-		retDiff[dn1] = []string{dv1, ""}
+		retDiff[dn1] = &myDiff{dv1, &myFile{}, false}
+	}
+	if bidir {
+		for dn2, dv2 := range dir2 {
+			if dv1, ok := dir1[dn2]; ok {
+				if dv2.Hash != dv1.Hash {
+					retDiff[dn2] = &myDiff{dv2, dv1, true}
+				}
+				continue
+			}
+			retDiff[dn2] = &myDiff{dv2, &myFile{}, true}
+		}
 	}
 	return retDiff
 }
@@ -208,19 +266,19 @@ func avgF64Duration(durs []float64) float64 {
 	return sum / float64(length)
 }
 
-func copyFiles(src, dest string, files map[string][]string) {
+func copyFiles(src, dest string, files map[string]*myDiff) {
 	filesCount := len(files)
 	filesDone := 0
 	allDurations := make([]float64, 0)
 	if filesCount < 1 {
 		return
 	}
-	fmt.Printf("copying %d files\n", len(files))
+	fmt.Printf("copying %d files\n", filesCount)
 	for fn, hsh := range files {
 		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
 		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgF64Duration(allDurations)), 8)
 		filesDone++
-		if len(hsh[1]) > 1 {
+		if len(hsh.B.Hash) > 1 {
 			fmt.Printf("[%s] [%s] overwriting file: %s\n", progress, leftDurationStr, fn)
 		} else {
 			fmt.Printf("[%s] [%s] creating file: %s\n", progress, leftDurationStr, fn)
@@ -228,7 +286,7 @@ func copyFiles(src, dest string, files map[string][]string) {
 		destFp := filepath.Join(dest, fn)
 		destDir := filepath.Dir(destFp)
 		if exists, _ := existsFileDir(destDir); !exists {
-			if err := os.MkdirAll(destDir, 0700); err != nil {
+			if err := os.MkdirAll(destDir, 0755); err != nil {
 				fmt.Printf("could not create directory: %s\n", err)
 				return
 			}
@@ -273,15 +331,13 @@ func main() {
 		fmt.Println("source directory does not exist")
 		return
 	}
-
 	if exists, _ := existsFileDir(rDestDir); !exists {
-		if err := os.MkdirAll(rDestDir, 0700); err != nil {
+		if err := os.MkdirAll(rDestDir, 0755); err != nil {
 			fmt.Println("could not create destination directory")
 			return
 		}
 		fmt.Println("directory destination created")
 	}
-
 	fmt.Println(strings.Repeat("-", 40))
 	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, *fastMode, *ignoreMD5File)
 	if err != nil {
@@ -294,16 +350,20 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	diff := diffDirectory(allSrcFiles, allDestFiles)
+	diff := diffDirectory(allSrcFiles, allDestFiles, *diffOnly)
 	if *diffOnly {
 		fmt.Println(strings.Repeat("-", 40))
 		fmt.Printf("found %d diff files\n", len(diff))
 		for fn, hsh := range diff {
-			if len(hsh[1]) > 0 {
-				fmt.Printf("%s\nchange: %s -> %s\n\n", fn, hsh[0], hsh[1])
-				continue
+			toch := "new"
+			if len(hsh.B.Hash) > 0 {
+				toch = "change"
 			}
-			fmt.Printf("%s\nnew file: %s\n\n", fn, hsh[0])
+			arrow := "->"
+			if hsh.Reverse {
+				arrow = "<-"
+			}
+			fmt.Printf("(%s): %s: %s %s %s\n", toch, fn, hsh.A.Hash, arrow, hsh.B.Hash)
 		}
 		return
 	}
