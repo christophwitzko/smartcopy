@@ -222,9 +222,6 @@ func diffDirectory(dir1, dir2 map[string]*myFile, bidir bool) map[string]*myDiff
 	if bidir {
 		for dn2, dv2 := range dir2 {
 			if dv1, ok := dir1[dn2]; ok {
-				if dv2.Hash != dv1.Hash {
-					retDiff[dn2] = &myDiff{dv2, dv1, true}
-				}
 				continue
 			}
 			retDiff[dn2] = &myDiff{dv2, &myFile{}, true}
