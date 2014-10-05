@@ -228,6 +228,12 @@ func diffDirectory(dir1, dir2 map[string]*myFile, bidir bool) map[string]*myDiff
 				if dv1.ModTime.Sub(dv2.ModTime) < 0 {
 					retDiff[dn1].Reverse = true
 				}
+			} else if dv1.Hash == "FM" && dv2.Hash == "FM" && dv1.ModTime.Sub(dv2.ModTime) != 0 {
+				fmt.Println(dv1.ModTime.Sub(dv2.ModTime))
+				retDiff[dn1] = &myDiff{dv1, dv2, false}
+				if dv1.ModTime.Sub(dv2.ModTime) < 0 {
+					retDiff[dn1].Reverse = true
+				}
 			}
 			continue
 		}
@@ -303,7 +309,7 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 			}
 			fmt.Printf("directory created: %s\n", filepath.Dir(fn))
 		}
-		cpCmd := exec.Command("cp", "-f", filepath.Join(src, fn), destFp)
+		cpCmd := exec.Command("cp", "-fp", filepath.Join(src, fn), destFp)
 		tStart := time.Now()
 		err := cpCmd.Run()
 		allDurations = append(allDurations, float64(time.Since(tStart)))
@@ -320,8 +326,8 @@ func main() {
 	fileRegExp := flag.String("regexp", ".*", "file regexp")
 	diffOnly := flag.Bool("diff", false, "diff source vs. destination")
 	fastMode := flag.Bool("fast", false, "enables fast mode (no hashing)")
-	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the smartcopy.md5 file and updates it")
-
+	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the smartcopy.md5 file")
+	analyzeOnly := flag.Bool("analyze", false, "analyzes only the source directory")
 	flag.Parse()
 
 	rSrcDir, err := filepath.Abs(*srcDir)
@@ -334,7 +340,7 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	if rSrcDir == rDestDir {
+	if rSrcDir == rDestDir && !*analyzeOnly {
 		fmt.Println("source directory and destination directory are the same")
 		return
 	}
@@ -342,20 +348,23 @@ func main() {
 		fmt.Println("source directory does not exist")
 		return
 	}
-	if exists, _ := existsFileDir(rDestDir); !exists {
-		if err := os.MkdirAll(rDestDir, 0755); err != nil {
-			fmt.Println("could not create destination directory")
-			return
-		}
-		fmt.Println("directory destination created")
-	}
-	fmt.Println(strings.Repeat("-", 40))
 	allSrcFiles, err := analyzeDirectory(rSrcDir, *fileRegExp, *fastMode, *ignoreMD5File)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	if *analyzeOnly {
+		return
+	}
 	fmt.Println(strings.Repeat("-", 40))
+	if exists, _ := existsFileDir(rDestDir); !exists {
+		if err := os.MkdirAll(rDestDir, 0755); err != nil {
+			fmt.Println("could not create destination directory")
+			return
+		}
+		fmt.Println("destination directory created")
+		fmt.Println(strings.Repeat("-", 40))
+	}
 	allDestFiles, err := analyzeDirectory(rDestDir, *fileRegExp, *fastMode, *ignoreMD5File)
 	if err != nil {
 		fmt.Println(err)
