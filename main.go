@@ -302,10 +302,16 @@ func formatSizeBytes(size interface{}) string {
 	return formatSize(size, 1, "B")
 }
 
+func formatPercent(f float64) string {
+	return fmt.Sprintf("%.1f%%", f*100)
+}
+
 type myFileStat struct {
 	File     *myFile
 	Duration float64
 }
+
+//START myStat
 
 type myStat struct {
 	FileRaw   map[string]*myDiff
@@ -357,7 +363,7 @@ func (mst *myStat) PercentLeft() float64 {
 }
 
 func (mst *myStat) PercentLeftString() string {
-	return fmt.Sprintf("%.1f%%", mst.PercentLeft()*100)
+	return formatPercent(mst.PercentLeft())
 }
 
 func (mst *myStat) SizeSum() int64 {
@@ -410,6 +416,38 @@ func (mst *myStat) RawSizeAvgString() string {
 	return formatSizeBytes(mst.RawSizeAvg())
 }
 
+func (mst *myStat) ExactPercentLeft() float64 {
+	return float64(mst.SizeSum()) / float64(mst.RawSizeSum())
+}
+
+func (mst *myStat) ExactPercentString() string {
+	return formatPercent(mst.ExactPercentLeft())
+}
+
+func (mst *myStat) Speed() float64 {
+	if mst.DurationSum() == 0 {
+		return float64(0)
+	}
+	return float64(mst.SizeSum()) / (mst.DurationSum() / float64(time.Second))
+}
+
+func (mst *myStat) SpeedString() string {
+	return fmt.Sprintf("%s/s", formatSizeBytes(mst.Speed()))
+}
+
+func (mst *myStat) ExactDurationLeft() float64 {
+	if mst.Speed() == 0 {
+		return float64(0)
+	}
+	return (float64(mst.RawSizeSum()-mst.SizeSum()) / mst.Speed()) * float64(time.Second)
+}
+
+func (mst *myStat) ExactDurationLeftString() string {
+	return formatF64Duration(mst.ExactDurationLeft())
+}
+
+//END myStat
+
 func copyFiles(src, dest string, files map[string]*myDiff) {
 	copyStat := &myStat{files, make([]*myFileStat, 0), len(files), 0}
 	if copyStat.Length < 1 {
@@ -421,7 +459,7 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 		if len(hsh.B.Hash) > 1 {
 			cpType = "overwriting"
 		}
-		fmt.Printf("[%s][%s] %s file: %s\n", strPadding(copyStat.PercentLeftString(), 6), strPadding(copyStat.DurationLeftString(), 8), cpType, fn)
+		fmt.Printf("[%s][%s] %s file: %s\n", strPadding(copyStat.ExactPercentString(), 6), strPadding(copyStat.ExactDurationLeftString(), 9), cpType, fn)
 		destFp := filepath.Join(dest, fn)
 		destDir := filepath.Dir(destFp)
 		if exists, _ := existsFileDir(destDir); !exists {
@@ -439,7 +477,7 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 			fmt.Printf("error: %s\n", err)
 		}
 	}
-	fmt.Printf("[100.0%%][%s] all files copied (%s/%s)\n", strPadding(copyStat.DurationSumString(), 8), copyStat.SizeSumString(), copyStat.SizeAvgString())
+	fmt.Printf("[100.0%%][%s] all files copied (%s/%s)\n", strPadding(copyStat.DurationSumString(), 9), copyStat.SizeSumString(), copyStat.SizeAvgString())
 }
 
 func main() {
