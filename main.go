@@ -157,12 +157,12 @@ func getMD5Files(root string, files []*myFile, fastmode, ignoremd5file bool) map
 			fmt.Printf("error: %s\n", err)
 		}
 		fmt.Printf("found %d hashes\n", len(retFiles))
-	}
-	if len(retFiles) > len(files) {
 		rrFls := make(map[string]*myFile)
 		for _, rfl := range files {
-			rrFls[rfl.Name] = retFiles[rfl.Name]
-			delete(retFiles, rfl.Name)
+			if rfval, rfok := retFiles[rfl.Name]; rfok {
+				rrFls[rfl.Name] = rfval
+				delete(retFiles, rfl.Name)
+			}
 		}
 		for dfn, _ := range retFiles {
 			fmt.Printf("file deleted: %s\n", dfn)
@@ -238,7 +238,7 @@ func diffDirectory(dir1, dir2 map[string]*myFile, bidir bool) map[string]*myDiff
 			if _, ok := dir1[dn2]; ok {
 				continue
 			}
-			retDiff[dn2] = &myDiff{dv2, &myFile{}, true}
+			retDiff[dn2] = &myDiff{&myFile{}, dv2, true}
 		}
 	}
 	return retDiff
@@ -260,20 +260,20 @@ func formatF64Duration(dur float64) string {
 	return fmt.Sprintf("%d:%.2d:%.2d", int(d/3600), int(d/60)%60, int(d)%60)
 }
 
-func sumF64Duration(durs []float64) float64 {
+func sumFloat64(f64 []float64) float64 {
 	sum := float64(0)
-	for _, v := range durs {
+	for _, v := range f64 {
 		sum += v
 	}
 	return sum
 }
 
-func avgF64Duration(durs []float64) float64 {
-	length := len(durs)
+func avgFloat64(f64 []float64) float64 {
+	length := len(f64)
 	if length < 1 {
 		return float64(0)
 	}
-	sum := sumF64Duration(durs)
+	sum := sumFloat64(f64)
 	return sum / float64(length)
 }
 
@@ -287,7 +287,7 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 	fmt.Printf("copying %d files\n", filesCount)
 	for fn, hsh := range files {
 		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
-		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgF64Duration(allDurations)), 8)
+		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgFloat64(allDurations)), 8)
 		filesDone++
 		if len(hsh.B.Hash) > 1 {
 			fmt.Printf("[%s] [%s] overwriting file: %s\n", progress, leftDurationStr, fn)
@@ -311,7 +311,7 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 			fmt.Printf("error: %s\n", err)
 		}
 	}
-	fmt.Printf("all files copied [%s]\n", strPadding(formatF64Duration(sumF64Duration(allDurations)), 8))
+	fmt.Printf("all files copied [%s]\n", strPadding(formatF64Duration(sumFloat64(allDurations)), 8))
 }
 
 func main() {
