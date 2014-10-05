@@ -266,40 +266,162 @@ func formatF64Duration(dur float64) string {
 	return fmt.Sprintf("%d:%.2d:%.2d", int(d/3600), int(d/60)%60, int(d)%60)
 }
 
-func sumFloat64(f64 []float64) float64 {
+func formatSize(pSize interface{}, mpl float64, suffix string) string {
+	sizestr := []string{"", "K", "M", "G", "T"}
+	var size float64
+	switch cSize := pSize.(type) {
+	case int64:
+		size = float64(cSize)
+	case int:
+		size = float64(cSize)
+	case float64:
+		size = cSize
+	default:
+		return ""
+	}
+	size *= mpl
+	isc := 0
+	for {
+		if isc > 3 || size < 1024 {
+			break
+		}
+		size /= 1024.0
+		isc++
+	}
+	if isc == 0 {
+		return fmt.Sprintf("%d%s%s", int64(size), sizestr[isc], suffix)
+	}
+	return fmt.Sprintf("%.1f%s%s", size, sizestr[isc], suffix)
+}
+
+func formatSizeBits(size interface{}) string {
+	return formatSize(size, 8, "Bits")
+}
+
+func formatSizeBytes(size interface{}) string {
+	return formatSize(size, 1, "B")
+}
+
+type myFileStat struct {
+	File     *myFile
+	Duration float64
+}
+
+type myStat struct {
+	FileRaw   map[string]*myDiff
+	FileStats []*myFileStat
+	Length    int
+	Done      int
+}
+
+func (mst *myStat) Push(file *myFile, dur time.Duration) {
+	mst.FileStats = append(mst.FileStats, &myFileStat{file, float64(dur)})
+	mst.Done++
+}
+
+func (mst *myStat) DurationSum() float64 {
 	sum := float64(0)
-	for _, v := range f64 {
-		sum += v
+	for _, v := range mst.FileStats {
+		sum += v.Duration
 	}
 	return sum
 }
 
-func avgFloat64(f64 []float64) float64 {
-	length := len(f64)
+func (mst *myStat) DurationSumString() string {
+	return formatF64Duration(mst.DurationSum())
+}
+
+func (mst *myStat) DurationAvg() float64 {
+	length := len(mst.FileStats)
 	if length < 1 {
 		return float64(0)
 	}
-	sum := sumFloat64(f64)
+	sum := mst.DurationSum()
 	return sum / float64(length)
 }
 
+func (mst *myStat) DurationAvgString() string {
+	return formatF64Duration(mst.DurationAvg())
+}
+
+func (mst *myStat) DurationLeft() float64 {
+	return float64(mst.Length-mst.Done) * mst.DurationAvg()
+}
+
+func (mst *myStat) DurationLeftString() string {
+	return formatF64Duration(mst.DurationLeft())
+}
+
+func (mst *myStat) PercentLeft() float64 {
+	return float64(mst.Done) / float64(mst.Length)
+}
+
+func (mst *myStat) PercentLeftString() string {
+	return fmt.Sprintf("%.1f%%", mst.PercentLeft()*100)
+}
+
+func (mst *myStat) SizeSum() int64 {
+	sum := int64(0)
+	for _, v := range mst.FileStats {
+		sum += v.File.Size
+	}
+	return sum
+}
+
+func (mst *myStat) SizeSumString() string {
+	return formatSizeBytes(mst.SizeSum())
+}
+
+func (mst *myStat) SizeAvg() float64 {
+	length := len(mst.FileStats)
+	if length < 1 {
+		return float64(0)
+	}
+	sum := mst.SizeSum()
+	return float64(sum) / float64(length)
+}
+
+func (mst *myStat) SizeAvgString() string {
+	return formatSizeBytes(mst.SizeAvg())
+}
+
+func (mst *myStat) RawSizeSum() int64 {
+	sum := int64(0)
+	for _, v := range mst.FileRaw {
+		sum += v.A.Size
+	}
+	return sum
+}
+
+func (mst *myStat) RawSizeSumString() string {
+	return formatSizeBytes(mst.RawSizeSum())
+}
+
+func (mst *myStat) RawSizeAvg() float64 {
+	length := len(mst.FileRaw)
+	if length < 1 {
+		return float64(0)
+	}
+	sum := mst.RawSizeSum()
+	return float64(sum) / float64(length)
+}
+
+func (mst *myStat) RawSizeAvgString() string {
+	return formatSizeBytes(mst.RawSizeAvg())
+}
+
 func copyFiles(src, dest string, files map[string]*myDiff) {
-	filesCount := len(files)
-	filesDone := 0
-	allDurations := make([]float64, 0)
-	if filesCount < 1 {
+	copyStat := &myStat{files, make([]*myFileStat, 0), len(files), 0}
+	if copyStat.Length < 1 {
 		return
 	}
-	fmt.Printf("copying %d files\n", filesCount)
+	fmt.Printf("copying %d files (%s/%s)\n", copyStat.Length, copyStat.RawSizeSumString(), copyStat.RawSizeAvgString())
 	for fn, hsh := range files {
-		progress := strPadding(fmt.Sprintf("%.1f%%", (float64(filesDone)/float64(filesCount))*100), 6)
-		leftDurationStr := strPadding(formatF64Duration(float64(filesCount-filesDone)*avgFloat64(allDurations)), 8)
-		filesDone++
+		cpType := "copying"
 		if len(hsh.B.Hash) > 1 {
-			fmt.Printf("[%s] [%s] overwriting file: %s\n", progress, leftDurationStr, fn)
-		} else {
-			fmt.Printf("[%s] [%s] creating file: %s\n", progress, leftDurationStr, fn)
+			cpType = "overwriting"
 		}
+		fmt.Printf("[%s][%s] %s file: %s\n", strPadding(copyStat.PercentLeftString(), 6), strPadding(copyStat.DurationLeftString(), 8), cpType, fn)
 		destFp := filepath.Join(dest, fn)
 		destDir := filepath.Dir(destFp)
 		if exists, _ := existsFileDir(destDir); !exists {
@@ -312,12 +434,12 @@ func copyFiles(src, dest string, files map[string]*myDiff) {
 		cpCmd := exec.Command("cp", "-fp", filepath.Join(src, fn), destFp)
 		tStart := time.Now()
 		err := cpCmd.Run()
-		allDurations = append(allDurations, float64(time.Since(tStart)))
+		copyStat.Push(hsh.A, time.Since(tStart))
 		if err != nil {
 			fmt.Printf("error: %s\n", err)
 		}
 	}
-	fmt.Printf("all files copied [%s]\n", strPadding(formatF64Duration(sumFloat64(allDurations)), 8))
+	fmt.Printf("[100.0%%][%s] all files copied (%s/%s)\n", strPadding(copyStat.DurationSumString(), 8), copyStat.SizeSumString(), copyStat.SizeAvgString())
 }
 
 func main() {
