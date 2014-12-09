@@ -484,12 +484,16 @@ func main() {
 	srcDir := flag.String("s", "", "source directory")
 	destDir := flag.String("d", "", "destination directory")
 	fileRegExp := flag.String("regexp", ".*", "file regexp")
-	diffOnly := flag.Bool("diff", false, "diff source vs. destination")
+	diffOnly := flag.Bool("diff", false, "compare source with destination")
 	fastMode := flag.Bool("fast", false, "enables fast mode (no hashing)")
+	setVideo := flag.Bool("video", false, "only copy video files")
 	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the smartcopy.md5 file")
 	analyzeOnly := flag.Bool("analyze", false, "analyzes only the source directory")
 	flag.Parse()
 
+	if *setVideo {
+		*fileRegExp = "\\.mp4$"
+	}
 	rSrcDir, err := filepath.Abs(*srcDir)
 	if err != nil {
 		fmt.Println(err)
