@@ -150,7 +150,7 @@ func getMD5Files(root string, files []*myFile, fastmode, ignoremd5file bool) map
 	retFiles := make(map[string]*myFile)
 	scmd5fp := filepath.Join(root, SCMD5FN)
 	if exists, _ := existsFileDir(scmd5fp); exists && !fastmode && !ignoremd5file {
-		fmt.Println("reading smartcopy.md5")
+		fmt.Println("reading " + SCMD5FN)
 		var err error
 		retFiles, err = loadMD5File(scmd5fp)
 		if err != nil {
@@ -486,9 +486,9 @@ func main() {
 	fileRegExp := flag.String("regexp", ".*", "file regexp")
 	diffOnly := flag.Bool("diff", false, "compare source with destination")
 	fastMode := flag.Bool("fast", false, "enables fast mode (no hashing)")
-	setVideo := flag.Bool("video", false, "only copy video files")
-	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the smartcopy.md5 file")
-	analyzeOnly := flag.Bool("analyze", false, "analyzes only the source directory")
+	setVideo := flag.Bool("video", false, "copy only video files")
+	ignoreMD5File := flag.Bool("ignoremd5", false, "ignores the " + SCMD5FN + " file")
+	analyzeOnly := flag.Bool("analyze", false, "analyze the source directory")
 	flag.Parse()
 
 	if *setVideo {
